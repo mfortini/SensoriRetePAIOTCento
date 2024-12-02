@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Card,
   CardContent,
@@ -147,7 +147,7 @@ const WeatherDashboard = () => {
   const [selectedParameter, setSelectedParameter] = useState(null);
   const [historicalData, setHistoricalData] = useState([]);
 
-  const fetchStationData = async (stationId) => {
+  const fetchStationData = useCallback(async (stationId) => {
     const measureResponse = await fetch(`${API_BASE_URL}/getMeasuresID/${stationId}`);
     if (!measureResponse.ok) throw new Error(`Failed to fetch measures for station ${stationId}`);
     const measures = await measureResponse.json();
@@ -158,9 +158,9 @@ const WeatherDashboard = () => {
     const data = await dataResponse.json();
 
     return { measures, data };
-  };
+  },[]);
 
-  const fetchWeatherData = async () => {
+  const fetchWeatherData = useCallback(async () => {
     try {
       setError(null);
       
@@ -177,7 +177,7 @@ const WeatherDashboard = () => {
     } catch (err) {
       setError(err.message);
     }
-  };
+  },[fetchStationData]);
 
   const getDates = () => {
     const today = new Date();
