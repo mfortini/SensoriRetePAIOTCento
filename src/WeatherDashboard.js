@@ -57,7 +57,7 @@ const weatherParameters = [
   { 
     icon: <AirIcon />, 
     label: 'Vento', 
-    keys: ['VENTO', 'DIREZIONE', 'RAFFICA'], 
+    keys: ['VELOCITA MEDIA VENTO', 'VELOCITA MAX VENTO', 'VELOCITA MIN VENTO', 'DIREZIONE_VENTO', 'DIREZIONE RAFFICA'], 
     color: '#00BCD4',
     multiValue: true,
     chartColors: ['#00BCD4', '#4DD0E1', '#80DEEA']
