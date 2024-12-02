@@ -108,29 +108,19 @@ const weatherParameters = [
 
 
 const convertUTCToRome = (utcDateString) => {
-    try {
-      // API returns dates in format "YYYY-MM-DD HH:mm:ss"
-      // Add Z to make it explicit UTC
-      const date = new Date(utcDateString.replace(' ', 'T') + 'Z');
-      return date.toLocaleString('it-IT', { 
-        timeZone: 'Europe/Rome',
-        day: '2-digit',
-        month: '2-digit',
-        year: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit',
-        second: '2-digit'
-      });
-    } catch (err) {
-      console.error('Date conversion error:', err);
-      return 'Invalid Date';
-    }
-  };
+  try {
+    const date = new Date(utcDateString.replace(' ', 'T') + 'Z');
+    return date.toLocaleString('it-IT', { timeZone: 'Europe/Rome' });
+  } catch (err) {
+    console.error('Date conversion error:', err);
+    return 'Invalid Date';
+  }
+};
   
   const convertUTCToRomeDate = (utcDateString) => {
     try {
       const date = new Date(utcDateString.replace(' ', 'T') + 'Z');
-      const romeDate = new Date(date.toLocaleString('en-US', { timeZone: 'Europe/Rome' }));
+      const romeDate = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate(), date.getHours(), date.getMinutes(), date.getSeconds()));
       return romeDate;
     } catch (err) {
       console.error('Date conversion error:', err);
@@ -139,28 +129,11 @@ const convertUTCToRome = (utcDateString) => {
   };
   
   const formatChartTime = (date) => {
-    if (!(date instanceof Date) || isNaN(date)) {
-      return '';
-    }
-    return date.toLocaleTimeString('it-IT', {
-      timeZone: 'Europe/Rome',
-      hour: '2-digit',
-      minute: '2-digit'
-    });
+    return date ? date.toLocaleTimeString('it-IT', { timeZone: 'Europe/Rome', hour: '2-digit', minute: '2-digit' }) : '';
   };
 
-  const getWindDirectionArrow = (degrees) => {
-    if (degrees == null) return '';
-    if (degrees >= 337.5 || degrees < 22.5) return '↑ N';
-    if (degrees >= 22.5 && degrees < 67.5) return '↗ NE';
-    if (degrees >= 67.5 && degrees < 112.5) return '→ E';
-    if (degrees >= 112.5 && degrees < 157.5) return '↘ SE';
-    if (degrees >= 157.5 && degrees < 202.5) return '↓ S';
-    if (degrees >= 202.5 && degrees < 247.5) return '↙ SW';
-    if (degrees >= 247.5 && degrees < 292.5) return '← W';
-    if (degrees >= 292.5 && degrees < 337.5) return '↖ NW';
-    return '';
-  };
+  const WIND_DIRECTIONS = ['↑ N', '↗ NE', '→ E', '↘ SE', '↓ S', '↙ SW', '← W', '↖ NW'];
+  const getWindDirectionArrow = (degrees) => degrees == null ? '' : WIND_DIRECTIONS[Math.floor((degrees % 360) / 45)];
   
 const WeatherDashboard = () => {
   const [selectedInterval, setSelectedInterval] = useState(60000);
@@ -219,50 +192,42 @@ const WeatherDashboard = () => {
 
   const fetchHistoricalData = async (measureIds) => {
     const dates = getDates();
-    const allData = [];
-
-    for (const measureId of measureIds) {
-      try {
-        const [todayData, yesterdayData] = await Promise.all([
-          fetch(`${API_BASE_URL}/getMeasureRealTimeData/${measureId}/${dates.today}`).then(res => res.json()),
-          fetch(`${API_BASE_URL}/getMeasureRealTimeData/${measureId}/${dates.yesterday}`).then(res => res.json())
-        ]);
-
+    const allPromises = measureIds.map(measureId => 
+      Promise.all([
+        fetch(`${API_BASE_URL}/getMeasureRealTimeData/${measureId}/${dates.today}`).then(res => res.json()),
+        fetch(`${API_BASE_URL}/getMeasureRealTimeData/${measureId}/${dates.yesterday}`).then(res => res.json())
+      ]).then(([todayData, yesterdayData]) => {
         const combinedData = [...todayData, ...yesterdayData]
           .sort((a, b) => new Date(a.timestamp + 'Z') - new Date(b.timestamp + 'Z'))
-          .filter(d => {
-            const date = new Date(d.timestamp + 'Z');
-            const now = new Date();
-            const diff = now - date;
-            return diff <= 24 * 60 * 60 * 1000;
-          });
-
-        allData.push({
-          id: measureId,
-          data: combinedData
-        });
-      } catch (err) {
+          .filter(d => new Date() - new Date(d.timestamp + 'Z') <= 24 * 60 * 60 * 1000);
+        return { id: measureId, data: combinedData };
+      }).catch(err => {
         console.error(`Error fetching historical data for measure ${measureId}:`, err);
-      }
-    }
+        return { id: measureId, data: [] };
+      })
+    );
 
-    return allData;
+    return Promise.all(allPromises);
   };
 
   const formatChartData = (historicalData) => {
     if (!historicalData.length) return { xAxis: [], series: [] };
 
     const timestamps = historicalData[0].data.map(d => convertUTCToRomeDate(d.timestamp));
+    const series = [];
 
-    const series = historicalData.map((dataset, index) => ({
-      data: dataset.data.map(d => parseFloat(d.value)),
-      label: selectedParameter?.keys[index],
-      color: selectedParameter?.chartColors[index],
-    }));
+    for (const [index, dataset] of historicalData.entries()) {
+      const data = dataset.data.map(d => parseFloat(d.value));
+      series.push({
+        data,
+        label: selectedParameter?.keys[index],
+        color: selectedParameter?.chartColors[index],
+      });
+    }
 
     return {
       xAxis: timestamps,
-      series: series,
+      series,
     };
   };
 
@@ -270,13 +235,11 @@ const WeatherDashboard = () => {
     setSelectedParameter(parameter);
     setDialogOpen(true);
 
-    const measureIds = parameter.keys
-      .map(key => {
-        const mainMeasure = weatherData.main?.measures.find(m => m.descrizione.includes(key));
-        const windMeasure = weatherData.wind?.measures.find(m => m.descrizione.includes(key));
-        return (mainMeasure || windMeasure)?.id_misura;
-      })
-      .filter(Boolean);
+    const measureIds = parameter.keys.reduce((ids, key) => {
+      const measure = weatherData.main?.measures.concat(weatherData.wind?.measures || []).find(m => m.descrizione.includes(key));
+      if (measure) ids.push(measure.id_misura);
+      return ids;
+    }, []);
 
     const historicalDataResult = await fetchHistoricalData(measureIds);
     setHistoricalData(historicalDataResult);
@@ -284,19 +247,23 @@ const WeatherDashboard = () => {
 
   const getValue = (description) => {
     if (!weatherData.main || !weatherData.wind) return null;
-    
-    let measure = weatherData.main.measures.find(m => m.descrizione.includes(description));
-    let value = measure && weatherData.main.data.find(d => d.id_measure === measure.id_misura);
-    
+
+    const findMeasureAndValue = (data, measures) => {
+      const measure = measures.find(m => m.descrizione.includes(description));
+      const value = measure && data.find(d => d.id_measure === measure.id_misura);
+      return { measure, value };
+    };
+
+    let { measure, value } = findMeasureAndValue(weatherData.main.data, weatherData.main.measures);
+
     if (!value) {
-      measure = weatherData.wind.measures.find(m => m.descrizione.includes(description));
-      value = measure && weatherData.wind.data.find(d => d.id_measure === measure.id_misura);
+      ({ measure, value } = findMeasureAndValue(weatherData.wind.data, weatherData.wind.measures));
     }
-    
+
     return value && measure ? {
       value: value.value,
       unit: measure.descrizione_unita_misura,
-      time: value.timestamp || value.timedate, // Handle both timestamp and timedate fields
+      time: value.timestamp || value.timedate,
       source: value.id_measure
     } : null;
   };
