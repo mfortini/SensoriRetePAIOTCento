@@ -36,6 +36,11 @@ const weatherParameters = [
     icon: <ThermostatIcon />, 
     label: 'Temperatura', 
     keys: ['TEMPERATURA', 'TEMPERATURA MAX', 'TEMPERATURA MIN'], 
+    keyLabels: {
+      'TEMPERATURA': 'Temperatura attuale',
+      'TEMPERATURA MAX': 'Temperatura massima',
+      'TEMPERATURA MIN': 'Temperatura minima'
+    },
     color: '#FF5722',
     multiValue: true,
     chartColors: ['#FF5722', '#FF8A65', '#FFAB91']
@@ -44,6 +49,9 @@ const weatherParameters = [
     icon: <OpacityIcon />, 
     label: 'Umidità Relativa', 
     keys: ['UMIDITA'], 
+    keyLabels: {
+      'UMIDITA': 'Umidità'
+    },
     color: '#2196F3',
     chartColors: ['#2196F3']
   },
@@ -51,6 +59,9 @@ const weatherParameters = [
     icon: <CompressIcon />, 
     label: 'Pressione Atmosferica', 
     keys: ['PRESSIONE'], 
+    keyLabels: {
+      'PRESSIONE': 'Pressione'
+    },
     color: '#9C27B0',
     chartColors: ['#9C27B0']
   },
@@ -58,6 +69,13 @@ const weatherParameters = [
     icon: <AirIcon />, 
     label: 'Vento', 
     keys: ['VELOCITA MEDIA VENTO', 'VELOCITA MAX VENTO', 'VELOCITA MIN VENTO', 'DIREZIONE_VENTO', 'DIREZIONE RAFFICA'], 
+    keyLabels: {
+      'VELOCITA MEDIA VENTO': 'Velocità media del vento',
+      'VELOCITA MAX VENTO': 'Velocità massima del vento',
+      'VELOCITA MIN VENTO': 'Velocità minima del vento',
+      'DIREZIONE_VENTO': 'Direzione del vento',
+      'DIREZIONE RAFFICA': 'Direzione raffica'
+    },
     color: '#00BCD4',
     multiValue: true,
     chartColors: ['#00BCD4', '#4DD0E1', '#80DEEA']
@@ -66,6 +84,10 @@ const weatherParameters = [
     icon: <WbSunnyIcon />, 
     label: 'Intensità della Radiazione Solare', 
     keys: ['RADIAZIONE', 'RADIAZIONE MAX'], 
+    keyLabels: {
+      'RADIAZIONE': 'Radiazione solare',
+      'RADIAZIONE MAX': 'Radiazione solare massima'
+    },
     color: '#FFC107',
     multiValue: true,
     chartColors: ['#FFC107', '#FFD54F']
@@ -74,11 +96,16 @@ const weatherParameters = [
     icon: <WaterDropIcon />, 
     label: 'Pioggia', 
     keys: ['PIOGGIA CUMULATA', 'PIOGGIA INCREMENTALE'], 
+    keyLabels: {
+      'PIOGGIA CUMULATA': 'Pioggia cumulata',
+      'PIOGGIA INCREMENTALE': 'Pioggia incrementale'
+    },
     color: '#4CAF50',
     multiValue: true,
     chartColors: ['#4CAF50', '#81C784']
   }
 ];
+
 
 const convertUTCToRome = (utcDateString) => {
     try {
@@ -336,28 +363,27 @@ const WeatherDashboard = () => {
                     <Typography variant="h6">{param.label}</Typography>
                   </Box>
                   {values.length > 0 ? (
-                   values.map((data, idx) => (
-                    <Box key={idx} sx={{ mb: idx < values.length - 1 ? 1 : 0 }}>
-                      <Typography variant="h5">
-                        {`${parseFloat(data.value).toFixed(1)} ${data.unit}`}
-                        {/* Add wind direction arrow for DIREZIONE */}
-                        {param.keys[idx] === 'DIREZIONE' && (
-                          <span style={{ marginLeft: 8, fontSize: '1.2rem' }}>
-                            {getWindDirectionArrow(data.value)}
-                          </span>
-                        )}
-                      </Typography>
-                      <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-                        {param.keys[idx]}
-                      </Typography>
-                      <Typography variant="caption" color="text.secondary" display="block">
-                        Ultimo agg.: {convertUTCToRome(data.time)}
-                      </Typography>
-                    </Box>
-                    ))
-                  ) : (
-                    <Typography color="text.secondary">No data available</Typography>
-                  )}
+  values.map((data, idx) => (
+    <Box key={idx} sx={{ mb: idx < values.length - 1 ? 1 : 0 }}>
+      <Typography variant="h5">
+        {`${parseFloat(data.value).toFixed(1)} ${data.unit}`}
+        {(param.keys[idx] === 'DIREZIONE_VENTO' || param.keys[idx] === 'DIREZIONE RAFFICA' )&& (
+          <span style={{ marginLeft: 8, fontSize: '1.2rem' }}>
+            {getWindDirectionArrow(data.value)}
+          </span>
+        )}
+      </Typography>
+      <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+        {param.keyLabels[param.keys[idx]] || param.keys[idx]}
+      </Typography>
+      <Typography variant="caption" color="text.secondary" display="block">
+        Ultimo agg.: {convertUTCToRome(data.time)}
+      </Typography>
+    </Box>
+  ))
+) : (
+  <Typography color="text.secondary">No data available</Typography>
+)}
                 </CardContent>
               </Card>
             </Grid>
