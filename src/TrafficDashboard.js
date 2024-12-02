@@ -330,77 +330,79 @@ const TrafficDashboard = forwardRef((props, ref) => {
 
 
         function resampleSpeed(intervals, allSpeedData) {
-          return intervals.map((timestamp) => {
-            if (allSpeedData.length === 0) {
-              return { timestamp, value: 0 };
+          const result = [];
+          let idx = 0;
+          for (const timestamp of intervals) {
+            while (idx < allSpeedData.length && allSpeedData[idx].timestamp < timestamp) {
+              idx++;
             }
-            const idx = allSpeedData.findIndex((d) => d.timestamp > timestamp);
-            if (idx === -1) {
-              // All data points are before timestamp
+            if (idx === 0) {
+              result.push({ timestamp, value: 0 });
+            } else if (idx === allSpeedData.length) {
               const lastPoint = allSpeedData[allSpeedData.length - 1];
-              return { timestamp, value: lastPoint.value };
-            } else if (idx === 0) {
-              // All data points are after timestamp
-              return { timestamp, value: 0 };
+              result.push({ timestamp, value: lastPoint.value });
             } else {
-              // Data points exist before and after timestamp
               const lastPoint = allSpeedData[idx - 1];
               const nextPoint = allSpeedData[idx];
-              // Linear interpolation
               const timeDiff = nextPoint.timestamp - lastPoint.timestamp;
               const valueDiff = nextPoint.value - lastPoint.value;
               const timeFromLast = timestamp - lastPoint.timestamp;
               const interpolatedValue =
                 lastPoint.value + (valueDiff * timeFromLast) / timeDiff;
-              return { timestamp, value: interpolatedValue };
+              result.push({ timestamp, value: interpolatedValue });
             }
-          });
+          }
+          return result;
         }
 
 
         function convertToCumulativeSum(data) {
-          let cumSum = 0;
-          return data.map((d) => {
-            cumSum += d.value;
-            return { ...d, value: cumSum };
-          });
+          const cumSum = data.reduce((acc, curr, idx) => {
+            acc[idx] = (acc[idx - 1] || 0) + curr.value;
+            return acc;
+          }, []);
+          return data.map((d, idx) => ({ ...d, value: cumSum[idx] }));
         }
         
         function resampleCumulativeSum(intervals, trafficCumsum) {
-          return intervals.map((timestamp) => {
-            if (trafficCumsum.length === 0) {
-              return { timestamp, value: 0 };
+          const result = [];
+          let cumsumIndex = 0;
+          const length = trafficCumsum.length;
+
+          for (const timestamp of intervals) {
+            while (
+              cumsumIndex < length &&
+              trafficCumsum[cumsumIndex].timestamp <= timestamp
+            ) {
+              cumsumIndex++;
             }
-            const idx = trafficCumsum.findIndex((d) => d.timestamp > timestamp);
-            if (idx === -1) {
-              // All data points are before timestamp
-              const lastPoint = trafficCumsum[trafficCumsum.length - 1];
-              return { timestamp, value: lastPoint.value };
-            } else if (idx === 0) {
-              // All data points are after timestamp
-              return { timestamp, value: 0 };
+
+            if (cumsumIndex === 0) {
+              result.push({ timestamp, value: 0 });
             } else {
-              // Data points exist before and after timestamp
-              const lastPoint = trafficCumsum[idx - 1];
-              const nextPoint = trafficCumsum[idx];
-              // Linear interpolation for cumsum
-              const timeDiff = nextPoint.timestamp - lastPoint.timestamp;
-              const valueDiff = nextPoint.value - lastPoint.value;
-              const timeFromLast = timestamp - lastPoint.timestamp;
-              const interpolatedValue =
-                lastPoint.value + (valueDiff * timeFromLast) / timeDiff;
-              return { timestamp, value: interpolatedValue };
+              const lastPoint = trafficCumsum[cumsumIndex - 1];
+              if (cumsumIndex === length) {
+                result.push({ timestamp, value: lastPoint.value });
+              } else {
+                const nextPoint = trafficCumsum[cumsumIndex];
+                const timeDiff = nextPoint.timestamp - lastPoint.timestamp;
+                const valueDiff = nextPoint.value - lastPoint.value;
+                const timeFromLast = timestamp - lastPoint.timestamp;
+
+                result.push({
+                  timestamp,
+                  value: lastPoint.value + (valueDiff * timeFromLast) / timeDiff,
+                });
+              }
             }
-          });
+          }
+          return result;
         }
         
         function convertCumsumToCounts(cumsumData) {
-          return cumsumData.map((point, index) => ({
-            timestamp: point.timestamp,
-            value:
-              index === 0
-                ? point.value
-                : point.value - cumsumData[index - 1].value,
+          return cumsumData.map((d, i) => ({
+            timestamp: d.timestamp,
+            value: i === 0 ? d.value : d.value - cumsumData[i - 1].value,
           }));
         }
         
