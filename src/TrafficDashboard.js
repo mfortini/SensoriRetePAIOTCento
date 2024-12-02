@@ -1,5 +1,5 @@
 import TrafficPopup from './TrafficPopup';
-import React, { useEffect, useRef, useState, forwardRef, useImperativeHandle } from "react";
+import React, { useEffect, useRef, useState, useCallback, forwardRef, useImperativeHandle } from "react";
 import {
   Typography,
   Box,
@@ -46,7 +46,7 @@ const TRAFFIC_POINTS = [
     ],
   },
   {
-    location: 'Pieve',
+    location: 'Ponte Vecchio',
     coords: [44.72207, 11.29472],
     sensors: [
       { id: 10991, direction: 50, name: 'Ingresso a Cento' },
@@ -253,16 +253,14 @@ const TrafficDashboard = forwardRef((props, ref) => {
   useImperativeHandle(ref, () => ({
     invalidateMapSize: () => {
       if (mapRef.current) {
-        const container = mapRef.current.getContainer();
-        console.log("Before invalidateSize:", container.clientWidth, container.clientHeight);
         mapRef.current.invalidateSize();
-        console.log("After invalidateSize:", container.clientWidth, container.clientHeight);
       }
     },
   }));
 
   
-  const fetchSensorData = async (sensorId) => {
+  
+  const fetchSensorData = useCallback(async (sensorId) => {
     try {
       const measureResponse = await fetch(`${API_BASE_URL}/getMeasuresID/${sensorId}`);
       if (!measureResponse.ok)
@@ -503,39 +501,36 @@ const TrafficDashboard = forwardRef((props, ref) => {
       console.error(`Error fetching data for sensor ${sensorId}:`, err);
       return null;
     }
-  };
+  },[]);
 
-  const fetchAllData = async () => {
+  const fetchAllData = useCallback(async () => {
     try {
       setError(null);
       const results = {};
-  
-      // Flatten the sensors from all points
+
       const allSensors = TRAFFIC_POINTS.flatMap((point) => point.sensors);
-  
-      // Fetch data for all sensors in parallel
       const fetchPromises = allSensors.map((sensor) =>
         fetchSensorData(sensor.id).then((data) => ({
           id: sensor.id,
           data,
         }))
       );
-  
+
       const resolvedData = await Promise.all(fetchPromises);
-  
-      // Collect the results into the `results` object
+
       for (const { id, data } of resolvedData) {
         if (data) {
           results[id] = data;
         }
       }
-  
+
       setTrafficData(results);
       setLastUpdate(new Date());
     } catch (err) {
       setError(err.message);
     }
-  };
+  }, [fetchSensorData]); // Dependencies of fetchAllData
+
 
   useEffect(() => {
     fetchAllData();
