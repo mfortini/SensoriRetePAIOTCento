@@ -30,11 +30,15 @@ const TrafficPopup = ({ point, trafficData }) => {
       const isInbound = sensor.name.includes('Ingresso');
       const isOutbound = sensor.name.includes('Uscita');
 
+      console.log(sensor.name, 'sensorData:', sensorData);
+      const totalTraffic = sensorData.rawTraffic.reduce((sum, d) => sum + d.value, 0);
+      console.log('totalTraffic', totalTraffic);
+
       // Process traffic data
       if (sensorData.rawTraffic) {
         sensorData.rawTraffic.forEach(d => {
           const timestamp = d.timestamp;
-          const count = parseInt(d.value);
+          const count = d.value;
 
           if (isInbound) {
             totalIn += count;
