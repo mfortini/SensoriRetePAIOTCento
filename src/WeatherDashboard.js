@@ -222,6 +222,49 @@ const WeatherDashboard = () => {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [selectedParameter, setSelectedParameter] = useState(null);
   const [historicalData, setHistoricalData] = useState([]);
+  // We'll store the 24h difference for PIOGGIA CUMULATA with first/last timestamps
+  const [pioggiaCumulataData, setPioggiaCumulataData] = useState(null);
+
+  // Helper function to fetch the last 24 hours for a single measure and compute the difference.
+  const getDates = useCallback(() => {
+    const today = new Date();
+    const yesterday = new Date(today);
+    yesterday.setDate(yesterday.getDate() - 1);
+    return {
+      today: today.toISOString().split('T')[0],
+      yesterday: yesterday.toISOString().split('T')[0],
+    };
+  }, []);
+
+  const fetchPioggiaCumulataDifference = useCallback(async (measureId) => {
+    try {
+      const dates = getDates();
+      const [todayData, yesterdayData] = await Promise.all([
+        fetch(`${API_BASE_URL}/getMeasureRealTimeData/${measureId}/${dates.today}`).then(res => res.json()),
+        fetch(`${API_BASE_URL}/getMeasureRealTimeData/${measureId}/${dates.yesterday}`).then(res => res.json()),
+      ]);
+
+      const combinedData = [...todayData, ...yesterdayData]
+        .sort((a, b) => new Date(a.timestamp + 'Z') - new Date(b.timestamp + 'Z'))
+        .filter(d => new Date() - new Date(d.timestamp + 'Z') <= 24 * 60 * 60 * 1000);
+
+      if (combinedData.length > 1) {
+        const firstVal = parseFloat(combinedData[0].value);
+        const lastVal = parseFloat(combinedData[combinedData.length - 1].value);
+        const diff = (lastVal - firstVal).toFixed(1);
+
+        // Capture first/last timestamps as well.
+        const firstTs = combinedData[0].timestamp;
+        const lastTs = combinedData[combinedData.length - 1].timestamp;
+
+        return { diff, firstTs, lastTs };
+      }
+      return null;
+    } catch (err) {
+      console.error('Error fetching pioggia cumulata difference:', err);
+      return null;
+    }
+  }, [getDates]);
 
   const fetchStationData = useCallback(async (stationId) => {
     const measureResponse = await fetch(`${API_BASE_URL}/getMeasuresID/${stationId}`);
@@ -248,20 +291,30 @@ const WeatherDashboard = () => {
         wind: windStationData
       });
       setLastUpdate(new Date());
+
+      // Once we have the data, find the measure for PIOGGIA CUMULATA.
+      // We'll compute the last 24-hour difference and store it in state (with times).
+      const allMeasures = mainStationData.measures.concat(windStationData.measures || []);
+      const pioggiaCumulataMeasure = allMeasures.find(m => m.descrizione.includes('PIOGGIA CUMULATA'));
+      if (pioggiaCumulataMeasure) {
+        const result = await fetchPioggiaCumulataDifference(pioggiaCumulataMeasure.id_misura);
+        if (result) {
+          setPioggiaCumulataData({
+            diff: result.diff,
+            firstTs: result.firstTs,
+            lastTs: result.lastTs
+          });
+        } else {
+          setPioggiaCumulataData(null);
+        }
+      } else {
+        setPioggiaCumulataData(null);
+      }
+
     } catch (err) {
       setError(err.message);
     }
-  }, [fetchStationData]);
-
-  const getDates = () => {
-    const today = new Date();
-    const yesterday = new Date(today);
-    yesterday.setDate(yesterday.getDate() - 1);
-    return {
-      today: today.toISOString().split('T')[0],
-      yesterday: yesterday.toISOString().split('T')[0],
-    };
-  };
+  }, [fetchStationData, fetchPioggiaCumulataDifference]);
 
   /**
    * fetchHistoricalData:
@@ -319,7 +372,8 @@ const WeatherDashboard = () => {
   /**
    * getValue:
    * - Returns the latest measure from MAIN or WIND data
-   * - Used for the small summary on the cards
+   * - If PIOGGIA CUMULATA, use the last 24h difference from pioggiaCumulataData (if available)
+   *   along with the first/last timestamps
    */
   const getValue = (description) => {
     if (!weatherData.main || !weatherData.wind) return null;
@@ -335,6 +389,30 @@ const WeatherDashboard = () => {
       ({ measure, value } = findMeasureAndValue(weatherData.wind.data, weatherData.wind.measures));
     }
 
+    // If we have pioggiaCumulataData and the key is PIOGGIA CUMULATA, show the diff plus both times.
+    if (measure && measure.descrizione.includes('PIOGGIA CUMULATA')) {
+      if (pioggiaCumulataData) {
+        const { diff, firstTs, lastTs } = pioggiaCumulataData;
+        return {
+          value: diff,
+          unit: measure.descrizione_unita_misura,
+          // We'll store the last reading as 'time', but also store 'since' as the first reading time.
+          time: lastTs || '',
+          since: firstTs || '',
+          source: value ? value.id_measure : null
+        };
+      } else {
+        // fallback to 0 or the raw reading if you prefer
+        return {
+          value: 0,
+          unit: measure.descrizione_unita_misura,
+          time: value ? (value.timestamp || value.timedate) : '',
+          source: value ? value.id_measure : null
+        };
+      }
+    }
+
+    // Normal case for everything else
     return value && measure
       ? {
           value: value.value,
@@ -410,25 +488,36 @@ const WeatherDashboard = () => {
                     <Typography variant="h6">{param.label}</Typography>
                   </Box>
                   {values.length > 0 ? (
-                    values.map((data, idx) => (
-                      <Box key={idx} sx={{ mb: idx < values.length - 1 ? 1 : 0 }}>
-                        <Typography variant="h5">
-                          {`${parseFloat(data.value).toFixed(1)} ${data.unit}`}
-                          {(param.keys[idx] === 'DIREZIONE_VENTO' ||
-                            param.keys[idx] === 'DIREZIONE RAFFICA') && (
-                            <span style={{ marginLeft: 8, fontSize: '1.2rem' }}>
-                              {getWindDirectionArrow(data.value)}
-                            </span>
+                    values.map((data, idx) => {
+                      // For pioggia cumulata difference, we also have data.since (start time)
+                      const lastUpdateStr = convertUTCToRome(data.time);
+                      const sinceStr = data.since ? convertUTCToRome(data.since) : null;
+
+                      return (
+                        <Box key={idx} sx={{ mb: idx < values.length - 1 ? 1 : 0 }}>
+                          <Typography variant="h5">
+                            {`${parseFloat(data.value).toFixed(1)} ${data.unit}`}
+                            {(param.keys[idx] === 'DIREZIONE_VENTO' ||
+                              param.keys[idx] === 'DIREZIONE RAFFICA') && (
+                              <span style={{ marginLeft: 8, fontSize: '1.2rem' }}>
+                                {getWindDirectionArrow(data.value)}
+                              </span>
+                            )}
+                          </Typography>
+                          <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+                            {param.keyLabels[param.keys[idx]] || param.keys[idx]}
+                          </Typography>
+                          {data.since && (
+                            <Typography variant="caption" color="text.secondary" display="block">
+                              Differenza da: {sinceStr}
+                            </Typography>
                           )}
-                        </Typography>
-                        <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-                          {param.keyLabels[param.keys[idx]] || param.keys[idx]}
-                        </Typography>
-                        <Typography variant="caption" color="text.secondary" display="block">
-                          Ultimo agg.: {convertUTCToRome(data.time)}
-                        </Typography>
-                      </Box>
-                    ))
+                          <Typography variant="caption" color="text.secondary" display="block">
+                            Ultimo agg.: {lastUpdateStr}
+                          </Typography>
+                        </Box>
+                      );
+                    })
                   ) : (
                     <Typography color="text.secondary">No data available</Typography>
                   )}
