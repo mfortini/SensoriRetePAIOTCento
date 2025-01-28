@@ -153,19 +153,19 @@ const formatChartTime = (date) => {
 };
 
 /**
- * Extended function that can format all or some of the historical data series
- * based on the indexes you pass in (e.g. [0,1,2] for speed, [3,4] for direction).
- * Now includes unit in the label.
+ * formatChartData:
+ * - Formats data for the chart, including timestamps and series.
+ * - If key = 'PIOGGIA CUMULATA', we subtract the first reading from all subsequent
+ *   values, so you see total rainfall since the earliest reading.
  */
 const formatChartData = (historicalData, selectedIndexes = null, parameter) => {
   if (!historicalData.length) {
     return { xAxis: [], series: [] };
   }
 
-  // If no specific indexes are passed, default to all indexes
+  // Which data sets to include in the chart
   const indexesToUse = selectedIndexes ?? historicalData.map((_, i) => i);
 
-  // The first index in the array
   const firstIndex = indexesToUse[0];
   if (
     typeof firstIndex === 'undefined' ||
@@ -175,30 +175,34 @@ const formatChartData = (historicalData, selectedIndexes = null, parameter) => {
     return { xAxis: [], series: [] };
   }
 
-  // Timestamps from whichever data series is first in the array
-  const timestamps = historicalData[firstIndex].data.map(d =>
-    convertUTCToRomeDate(d.timestamp)
-  );
-
+  // Convert each timestamp to a Date in the Europe/Rome timezone
+  const timestamps = historicalData[firstIndex].data.map(d => convertUTCToRomeDate(d.timestamp));
   const series = [];
 
   indexesToUse.forEach((datasetIndex) => {
     const dataset = historicalData[datasetIndex];
     if (!dataset) return;
 
-    const data = dataset.data.map(d => parseFloat(d.value));
-    // We use the param key for label, plus the unit from dataset.measure.unit if available
-    const key = dataset.measure.key; // e.g. 'TEMPERATURA MAX'
+    // Convert string values to floats
+    let dataValues = dataset.data.map(d => parseFloat(d.value));
+
+    // If it's 'PIOGGIA CUMULATA', subtract the first value as a baseline
+    if (dataset.measure.key === 'PIOGGIA CUMULATA' && dataValues.length > 0) {
+      const baseline = dataValues[0];
+      dataValues = dataValues.map(v => v - baseline);
+    }
+
+    // Build a label with the key and possibly the unit
+    const key = dataset.measure.key;
     const color = parameter?.chartColors?.[datasetIndex] || '#000';
 
-    // If we have a custom label for that key, use it. Otherwise just use the key.
     let label = parameter?.keyLabels?.[key] || key;
     if (dataset.measure.unit) {
       label += ` (${dataset.measure.unit})`;
     }
 
     series.push({
-      data,
+      data: dataValues,
       label,
       color,
     });
@@ -235,12 +239,10 @@ const WeatherDashboard = () => {
   const fetchWeatherData = useCallback(async () => {
     try {
       setError(null);
-
       const [mainStationData, windStationData] = await Promise.all([
         fetchStationData(WEATHER_STATIONS.MAIN),
         fetchStationData(WEATHER_STATIONS.WIND)
       ]);
-
       setWeatherData({
         main: mainStationData,
         wind: windStationData
@@ -255,14 +257,18 @@ const WeatherDashboard = () => {
     const today = new Date();
     const yesterday = new Date(today);
     yesterday.setDate(yesterday.getDate() - 1);
-
     return {
       today: today.toISOString().split('T')[0],
       yesterday: yesterday.toISOString().split('T')[0],
     };
   };
 
-  // Modified to accept an array of measure objects (with id, key, unit, etc.)
+  /**
+   * fetchHistoricalData:
+   * - Gets 24h worth of data for each measure.
+   * - Combines today's data and yesterday's data, sorting by timestamp and
+   *   filtering for only the last 24 hours.
+   */
   const fetchHistoricalData = async (measuresArray) => {
     const dates = getDates();
 
@@ -270,17 +276,13 @@ const WeatherDashboard = () => {
       const measureId = measureObj.id;
       return Promise.all([
         fetch(`${API_BASE_URL}/getMeasureRealTimeData/${measureId}/${dates.today}`).then(res => res.json()),
-        fetch(`${API_BASE_URL}/getMeasureRealTimeData/${measureId}/${dates.yesterday}`).then(res => res.json())
+        fetch(`${API_BASE_URL}/getMeasureRealTimeData/${measureId}/${dates.yesterday}`).then(res => res.json()),
       ])
       .then(([todayData, yesterdayData]) => {
         const combinedData = [...todayData, ...yesterdayData]
           .sort((a, b) => new Date(a.timestamp + 'Z') - new Date(b.timestamp + 'Z'))
           .filter(d => new Date() - new Date(d.timestamp + 'Z') <= 24 * 60 * 60 * 1000);
-
-        return {
-          measure: measureObj,
-          data: combinedData
-        };
+        return { measure: measureObj, data: combinedData };
       })
       .catch(err => {
         console.error(`Error fetching historical data for measure ${measureId}:`, err);
@@ -300,7 +302,6 @@ const WeatherDashboard = () => {
       const measure = weatherData.main?.measures
         .concat(weatherData.wind?.measures || [])
         .find(m => m.descrizione.includes(key));
-
       if (measure) {
         arr.push({
           id: measure.id_misura,
@@ -315,6 +316,11 @@ const WeatherDashboard = () => {
     setHistoricalData(historicalDataResult);
   };
 
+  /**
+   * getValue:
+   * - Returns the latest measure from MAIN or WIND data
+   * - Used for the small summary on the cards
+   */
   const getValue = (description) => {
     if (!weatherData.main || !weatherData.wind) return null;
 
@@ -325,7 +331,6 @@ const WeatherDashboard = () => {
     };
 
     let { measure, value } = findMeasureAndValue(weatherData.main.data, weatherData.main.measures);
-
     if (!value) {
       ({ measure, value } = findMeasureAndValue(weatherData.wind.data, weatherData.wind.measures));
     }
@@ -458,7 +463,7 @@ const WeatherDashboard = () => {
                       {
                         data: formatChartData(
                           historicalData,
-                          [0, 1, 2], // indexes for the three speed-related keys
+                          [0, 1, 2],
                           selectedParameter
                         ).xAxis,
                         scaleType: 'time',
@@ -470,8 +475,8 @@ const WeatherDashboard = () => {
                       historicalData,
                       [0, 1, 2],
                       selectedParameter
-                    ).series.map(series => ({
-                      ...series,
+                    ).series.map(s => ({
+                      ...s,
                       showMark: false,
                     }))}
                     height={350}
@@ -489,14 +494,13 @@ const WeatherDashboard = () => {
                 Vento – Direzione (Ultime 24h)
               </Typography>
               <Box sx={{ height: 400, width: '100%' }}>
-                {/* Make sure direction data is present (indexes 3 and 4) */}
                 {historicalData.length > 3 && historicalData[3].data.length > 0 && (
                   <LineChart
                     xAxis={[
                       {
                         data: formatChartData(
                           historicalData,
-                          [3, 4], // indexes for the two direction-related keys
+                          [3, 4],
                           selectedParameter
                         ).xAxis,
                         scaleType: 'time',
@@ -508,8 +512,8 @@ const WeatherDashboard = () => {
                       historicalData,
                       [3, 4],
                       selectedParameter
-                    ).series.map(series => ({
-                      ...series,
+                    ).series.map(s => ({
+                      ...s,
                       showMark: false,
                     }))}
                     height={350}
@@ -523,7 +527,7 @@ const WeatherDashboard = () => {
               </Box>
             </>
           ) : (
-            // NON-WIND CASE: Just one chart as usual
+            // NON-WIND CASE: Just one chart as usual (including Pioggia)
             <Box sx={{ height: 400, mt: 2, width: '100%' }}>
               {historicalData.length > 0 && historicalData[0].data.length > 0 && (
                 <LineChart
@@ -535,8 +539,8 @@ const WeatherDashboard = () => {
                       valueFormatter: (date) => formatChartTime(date)
                     }
                   ]}
-                  series={formatChartData(historicalData, null, selectedParameter).series.map(series => ({
-                    ...series,
+                  series={formatChartData(historicalData, null, selectedParameter).series.map(s => ({
+                    ...s,
                     showMark: false,
                   }))}
                   height={350}
